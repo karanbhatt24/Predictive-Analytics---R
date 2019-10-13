@@ -1,0 +1,212 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+
+---
+
+
+
+```{r Packages Required}
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, gplots, GGally, data.table, reshape, forecast, leaps, pivottabler)
+search()
+```
+
+# Ques 1
+```{r Question 1}
+
+fares.dt <-  fread("Airfares.csv")
+
+fares.dt <- fares.dt[,-c(1,2,3,4)]
+
+
+cor.mat <- round(cor(fares.dt[,-c(3, 4, 10, 11)]),2) #rounded correlation matrix 
+cor.mat[,10]#correlation wrt fare
+melted.cor.mat <- melt(cor.mat)
+
+library(ggplot2)
+library(gridExtra)
+#Plotting the Heat map
+ggplot(melted.cor.mat, aes(x = X1, y = X2, fill = value)) + 
+  scale_fill_gradient(low="gold1", high="red") +
+  geom_tile() + 
+  theme(text = element_text(size = 8), axis.text.x = element_text(angle = 90,hjust = 1))+
+  geom_text(aes(x = X1, y = X2, label = value))+
+  ggtitle("Heatmap for Utilities")
+
+
+x = ggplot(fares.dt) 
+
+
+coupon.plot <- x +
+  geom_point(aes(x= FARE, y=COUPON))
+new.plot <- x +
+  geom_point(aes(x= FARE, y=NEW))
+hi.plot <- x+
+  geom_point(aes(x= FARE, y=HI))
+sincome.plot <- x+
+  geom_point(aes(x= FARE, y=S_INCOME))
+eincome.plot <- x+
+  geom_point(aes(x= FARE, y=E_INCOME))
+spop.plot <- x+
+  geom_point(aes(x= FARE, y=S_POP))
+epop.plot <- x+
+  geom_point(aes(x= FARE, y=E_POP))
+dist.plot <- x+
+  geom_point(aes(x= FARE, y=DISTANCE))
+pax.plot <- x+
+  geom_point(aes(x= FARE, y= PAX))
+
+grid.arrange(coupon.plot, new.plot, hi.plot, sincome.plot, eincome.plot, spop.plot, epop.plot,dist.plot,pax.plot, nrow = 3)
+
+
+```
+
+# Interpretation 1 - From the correlation matrix, we infer that there is a high positive correlation between Fare and Distance - Value 0.67. Same is plotted as Heat map and this inference can be seen here. This can also be inferred from the scatter plot as the values correspond to a strong positive relation. Hence Distance is the best predictor of FARE.
+
+# Ques 2
+```{r Question 2}
+perc_sw = (nrow(subset(fares.dt,SW == "Yes"))/nrow(fares.dt))*100
+perc_sw_vec <- c(perc_sw, (100-perc_sw))
+names(perc_sw_vec)<- c("Yes","No")
+?
+perc_vac = (nrow(subset(fares.dt,VACATION == "YES"))/nrow(fares.dt))*100
+perc_vac_vec <- c(perc_vac ,(100-perc_vac))
+names(perc_vac_vec)<- c("Yes","No")
+ttest_vac <- t.test(perc_vac_vec)
+ttest_vac
+
+perc_slot = (nrow(subset(fares.dt,SLOT == "FREE"))/nrow(fares.dt))*100
+perc_slot_vec <-  c(perc_slot ,(100-perc_slot))
+names(perc_slot_vec)<- c("Free","Controlled")
+ttest_slot <- t.test(perc_slot_vec)
+ttest_slot
+
+perc_gate = (nrow(subset(fares.dt,GATE == "FREE"))/nrow(fares.dt))*100
+perc_gate_vec <- c(perc_gate ,(100-perc_gate))
+names(perc_gate_vec)<- c("Free","Constrained")
+ttest_gate <- t.test(perc_gate_vec)
+ttest_gate
+
+perc.df <- data.frame(perc_sw_vec, perc_vac_vec, perc_slot_vec,perc_gate_vec)
+perc.df
+
+cat_analysis <- function(category) {
+  form <- as.formula(paste("fares.dt$FARE ~ fares.dt$", category))
+  print(aggregate(form, data <- fares.dt, FUN <- mean))
+}
+cat_vars <- c("VACATION", "SW", "SLOT", "GATE")
+for (var in cat_vars){
+  cat_analysis(var)
+  cat('\n')
+}
+
+```
+# Interpretation 2 - SW is the best categorical predictor as there is a significant drop in average when its included.
+
+
+# Ques 3
+```{r Question 3}
+set.seed(42)
+# randomly order the dataset
+rows <- sample(nrow(fares.dt))
+fares.dt <- fares.dt[rows, ]
+
+# find rows to split on
+split <- round(nrow(fares.dt) * 0.8)
+train.df <- fares.dt[1:split, ]
+test.df <- fares.dt[(split+1):nrow(fares.dt), ]
+
+```
+# Interpretation 3 - We have rounded the variables to 80% for the training data and rest 20% for the test data.
+
+# Ques 4
+```{r Question 4}
+
+fares.lm <- lm(FARE ~ ., data = train.df)
+options(scipen = 999)
+summary(fares.lm)
+
+fares.lm.stepwise <- step(fares.lm, direction = "both")
+summary(fares.lm.stepwise)
+```
+# Interpretation 4 - Running the model, we interpret that the insignificant variables are Coupon, New, and S_Income. It is indicated by the + sign. The number of variables have been reduced from 13 to 10. We can see that the step AIC has been decreasing for subsequent steps and the least value is observed at 3649.2 when Coupon, NEW and S_Income are removed from the model.
+
+
+# Ques 5
+```{r Question 5}
+search <- regsubsets(FARE ~ ., data = train.df, nbest = 1, nvmax = dim(train.df)[2],
+                     method = "exhaustive")
+sum <- summary(search)
+
+# models
+sum$which
+
+# metrics
+sum$adjr2
+sum$cp
+
+```
+# Interpretation 5 - In this model Adj Rsq has the highest value for 12th subset combination and Cp has the optimal value of 11.086 (approx variable 10 +1). As our aim is to reduce the number of variables, we tend to use the 10 variable reduction combination. Hence we choose Cp to finalize the subset. This combination shows that Coupon, New and S_Income will not be considered for the model. Comparing with the step wise model, we find that the same number of variables are eliminated for both the models. Hence both the models correspond similarly.
+
+# Ques 6
+```{r Question 6}
+#Accuracy Stepwise
+fares.lm.stepwise.pred <- predict(fares.lm.stepwise, test.df)
+
+accuracy(fares.lm.stepwise.pred, test.df$FARE)
+
+#ACCURACY Exhaustive
+ex.lm <- lm(FARE ~ VACATION + SW + HI + E_INCOME + S_POP + E_POP + SLOT + 
+    GATE + DISTANCE + PAX, data=train.df[])
+ex.lm.pred <- predict(ex.lm, test.df[,-c("COUPON", "NEW", "S_INCOME")])
+
+accuracy(ex.lm.pred, test.df$FARE)
+
+```
+# Interpretation 6 - As both the models use the same variables, they tend to produce the same errors. Hence based on the accuracy, we find that both the models have same RMSE as both consider the same variables.
+
+# Ques 7
+```{r Question 7}
+reg.model <- lm(FARE ~ VACATION + SW + HI + E_INCOME + S_POP + E_POP + SLOT + 
+    GATE + DISTANCE + PAX, data=train.df)
+
+coef.mat <- coef(reg.model)
+
+value_without_sw <- coef.mat[1] + coef.mat[2]*0 + coef.mat[3]*0 + coef.mat[4]*4442.141 + coef.mat[5]*27664 + coef.mat[6]*4557004 + coef.mat[7]*3195503 + coef.mat[8]*1 + coef.mat[9]*1 +  coef.mat[10]*1976 + coef.mat[11]*12782
+
+value_without_sw
+
+```
+# Interpretation 7 - We find the fare to be 247.684 on the linear model for the given values.
+
+# Ques 8
+```{r Question 8}
+value_with_sw <- coef.mat[1] + coef.mat[2]*0 + coef.mat[3]*1 + coef.mat[4]*4442.141 + coef.mat[5]*27664 + coef.mat[6]*4557004 + coef.mat[7]*3195503 + coef.mat[8]*1 + coef.mat[9]*1 + coef.mat[10]*1976 + coef.mat[11]*12782
+value_with_sw
+
+Avg_Fare <- c(value_with_sw, value_without_sw, (value_without_sw - value_with_sw))
+names(Avg_Fare) <- c("With SW", "Without SW", "Difference in Fare")
+Avg_Fare
+```
+# Interpretation 8 - We find the fare to be 207.156 on the linear model for the given values. The Difference in fare turns out to be 40.528
+
+
+# Ques 9
+```{r Question 9}
+fare.lm.back <- step(fares.lm, direction = "backward")
+summary(fare.lm.back)
+
+#variables removed are coupon, S_Income, NEW
+```
+# Interpretation 9 - Running the backward regression to reduce the number of variables, we find that the least AIC is achieved at 3649.22 when we eliminate Coupon, S_Income and New. The variales are reduced from 13 to 10. The F statistic for the final model is 177.2 which has a very less p-value.
+
+# Ques 10
+```{r Question 10}
+library(MASS)
+fare.lm.aic.back <- stepAIC(fares.lm, direction = "backward")
+summary(fare.lm.aic.back)
+```
+# Interpretation 10 - In the StepAIC model, we remove the variables based on their contribution to AIC. Hence in first iteration, Coupon had the least AIC and thus removed. In second Iteration, S_Income has the lowest AIC and thus removed. In the second iteration, you can see that <none> is included as it is from the COUPON variable contribution and thus included. In the third Iteration, NEW has least AIC and eliminated. Note that here we have the <none> contributing through S_Income. In the 4th iteration,<none> seems to be having the least AIC and hence iteration stopped. The Optimal model is hence created.
